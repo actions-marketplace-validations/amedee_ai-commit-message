@@ -39247,7 +39247,8 @@ async function fetchCommitMessageWithRetry(
     } catch (error) {
       if (attempt === retries) {
         throw new Error(
-          `OpenRouter API error after ${retries} attempts: ${error.message}`,
+          `OpenRouter API error after ${retries} attempts`,
+          { cause: error },
         );
       }
       await new Promise((res) =>
