@@ -32,8 +32,12 @@ jobs:
         run: npm run build
 
       - name: Check for uncommitted changes
+        id: git-diff
         if: github.event_name != 'pull_request'
-        run: git diff --exit-code -- dist/
+        continue-on-error: true
+        run: |
+          git diff -- dist/ > dist-diff.txt
+          git diff --exit-code -- dist/
 
       - name: Upload generated bundle
         if: github.event_name == 'pull_request'
@@ -43,3 +47,33 @@ jobs:
           path: dist/index.js
           if-no-files-found: error
           retention-days: 1
+
+      - name: Publish build summary
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          {
+            echo "# Build Report"
+            echo
+
+            if [[ "${{ steps.git-diff.outcome }}" == "success" ]]; then
+              echo "✅ dist/ is up to date"
+            else
+              echo "❌ dist/ contains uncommitted changes"
+            fi
+
+            echo
+
+            if [[ -s dist-diff.txt ]]; then
+              echo "## Differences"
+              echo
+              echo "<details>"
+              echo "<summary>View diff</summary>"
+              echo
+              echo '```diff'
+              cat dist-diff.txt
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          [[ "${{ steps.git-diff.outcome }}" == "success" ]]
