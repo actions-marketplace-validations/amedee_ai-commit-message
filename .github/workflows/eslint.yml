@@ -1,0 +1,119 @@
+---
+name: 🛠️ Code Quality — ESLint
+
+on: # yamllint disable-line rule:truthy
+  push:
+    paths: &eslint-paths
+      - "**/*.js"
+      - "**/*.mjs"
+      - "**/*.cjs"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - ".github/workflows/eslint.yml"
+  pull_request:
+    paths: *eslint-paths
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  eslint:
+    name: ESLint
+    runs-on: ubuntu-26.04
+
+    steps:
+      - name: Collect Workflow Telemetry
+        # yamllint disable-line rule:line-length
+        uses: tsviz/actions-runner-telemetry@0fbec1ca185a193c94e4540e244110fdee912693 # v1.7.3
+        with:
+          enabled: ${{ vars.RUNNER_TELEMETRY_ENABLED || 'true' }}
+
+      - name: 📥 Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify Node.js project
+        run: |
+          test -f package.json
+          test -f package-lock.json
+
+      - name: ⚡ Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: Collect version information
+        id: versions
+        run: |
+          echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+          echo "npm=$(npm --version)" >> "$GITHUB_OUTPUT"
+          echo "eslint=$(npm exec eslint --version)" >> "$GITHUB_OUTPUT"
+
+      - name: 🔍 Run ESLint
+        id: eslint
+        continue-on-error: true
+        run: |
+          set -o pipefail
+
+          npm exec eslint -- \
+            . \
+            --ignore-pattern 'dist/**' \
+            --max-warnings=0 \
+            2>&1 | tee eslint-output.txt
+
+
+      - name: Annotate PR with Reviewdog
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: reviewdog/action-eslint@b6303df522851d0e9abaea654da0222037d97e75 # v1.36.0
+        with:
+          reporter: github-pr-review
+          fail_level: error
+          eslint_flags: ". --ignore-pattern 'dist/**' --max-warnings=0"
+
+      - name: Publish ESLint summary
+        if: always()
+        run: |
+          {
+            echo "# ESLint Report"
+            echo
+
+            if [[ "${{ steps.eslint.outcome }}" == "success" ]]; then
+              echo "✅ ESLint passed"
+            else
+              echo "❌ ESLint failed"
+            fi
+            echo
+
+            echo "## Environment"
+            echo
+            echo "- Node.js: \`${{ steps.versions.outputs.node }}\`"
+            echo "- npm: \`${{ steps.versions.outputs.npm }}\`"
+            echo "- ESLint: \`${{ steps.versions.outputs.eslint }}\`"
+            echo
+
+            echo "## ESLint Output"
+            echo
+
+            if [[ -s eslint-output.txt ]]; then
+              echo "<details>"
+              echo "<summary>ESLint Output</summary>"
+              echo
+              echo '```text'
+              cat eslint-output.txt
+              echo '```'
+              echo "</details>"
+            else
+              echo "_No ESLint findings were reported._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          [[ "${{ steps.eslint.outcome }}" == "success" ]]
